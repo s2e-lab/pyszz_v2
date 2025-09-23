@@ -79,7 +79,7 @@ class MASZZ(AGSZZ):
 
         return merge
 
-    def find_bic(self, fix_commit_hash: str, impacted_files: List['ImpactedFile'], **kwargs) -> Set[Commit]:
+    def find_bic(self, fix_commit_hash: str = None, unidiff_file_path: str = None, impacted_files: List['ImpactedFile'] = None, **kwargs) -> Set[Commit]:
         """
         Find bug introducing commits candidates.
 
@@ -94,7 +94,18 @@ class MASZZ(AGSZZ):
         """
 
         log.info(f"find_bic() kwargs: {kwargs}")
-        self._set_working_tree_to_commit(fix_commit_hash)
+        if unidiff_file_path:
+            if impacted_files is None:
+                impacted_files = self.get_impacted_files(unidiff_file_path=unidiff_file_path,
+                                                         file_ext_to_parse=kwargs.get('file_ext_to_parse'),
+                                                         only_deleted_lines=True)
+            if kwargs.get('blame_rev_pointer', None):
+                params_rev_pointer = kwargs['blame_rev_pointer']
+            else:
+                params_rev_pointer = 'HEAD'
+        else:
+            self._set_working_tree_to_commit(fix_commit_hash)
+            params_rev_pointer = 'HEAD^'
 
         max_change_size = kwargs.get('max_change_size', MASZZ.DEFAULT_MAX_CHANGE_SIZE)
         filter_revert = kwargs.get('filter_revert_commits', False)
@@ -104,8 +115,7 @@ class MASZZ(AGSZZ):
         params['detect_move_within_file'] = kwargs.get('detect_move_within_file', True)
         params['detect_move_from_other_files'] = kwargs.get('detect_move_from_other_files', DetectLineMoved.SAME_COMMIT)
         params['ignore_revs_list'] = list()
-        if kwargs.get('blame_rev_pointer', None):
-            params['rev_pointer'] = kwargs['blame_rev_pointer']
+        params['rev_pointer'] = params_rev_pointer
 
         log.info("staring blame")
         start = ts()
@@ -119,7 +129,14 @@ class MASZZ(AGSZZ):
             to_blame = True
             while to_blame:
                 log.info(f"excluding commits: {params['ignore_revs_list']}")
-                blame_data = self._ag_annotate([imp_file], **params)
+                rev_for_file = params['rev_pointer']
+                if not self._path_exists_in_rev(rev_for_file, imp_file.file_path):
+                    fallback_rev = self._last_rev_with_path('HEAD', imp_file.file_path)
+                    if not fallback_rev:
+                        fallback_rev = self._last_rev_with_path(rev_for_file, imp_file.file_path)
+                    rev_for_file = fallback_rev if fallback_rev else params['rev_pointer']
+
+                blame_data = self._ag_annotate([imp_file], rev_pointer=rev_for_file, **{k: v for k, v in params.items() if k != 'rev_pointer'})
 
                 new_commits_to_ignore = set()
                 new_commits_to_ignore_current_file = set()

@@ -43,8 +43,17 @@ class AGSZZ(AbstractSZZ):
         blame_data = set()
         for imp_file in impacted_files:
             try:
+                rev_for_file = rev_pointer
+                # f the target path doesn't exist in the chosen rev, walk back to last rev with the path
+                if not self._path_exists_in_rev(rev_for_file, imp_file.file_path):
+                    #Try HEAD first as a general fallback when using detached 
+                    fallback_rev = self._last_rev_with_path('HEAD', imp_file.file_path)
+                    if not fallback_rev:
+                        fallback_rev = self._last_rev_with_path(rev_for_file, imp_file.file_path)
+                    rev_for_file = fallback_rev if fallback_rev else rev_pointer
+
                 blame_info = self._blame(
-                    rev=rev_pointer,
+                    rev=rev_for_file,
                     file_path=imp_file.file_path,
                     modified_lines=imp_file.modified_lines,
                     ignore_whitespaces=True,
@@ -58,7 +67,7 @@ class AGSZZ(AbstractSZZ):
         return blame_data
 
     # TODO: add type check on kwargs
-    def find_bic(self, fix_commit_hash: str, impacted_files: List['ImpactedFile'], **kwargs) -> Set[Commit]:
+    def find_bic(self, fix_commit_hash: str = None, unidiff_file_path: str = None, impacted_files: List['ImpactedFile'] = None, **kwargs) -> Set[Commit]:
         """
         Find bug introducing commits candidates.
 
@@ -72,7 +81,17 @@ class AGSZZ(AbstractSZZ):
 
         log.info(f"find_bic() kwargs: {kwargs}")
 
-        self._set_working_tree_to_commit(fix_commit_hash)
+        if unidiff_file_path:
+            if impacted_files is None:
+                impacted_files = self.get_impacted_files(unidiff_file_path=unidiff_file_path, 
+                                                       file_ext_to_parse=kwargs.get('file_ext_to_parse'), 
+                                                       only_deleted_lines=True)
+            rev_pointer = 'HEAD'
+        else:
+            if fix_commit_hash is None:
+                raise ValueError("Must specify either fix_commit_hash or unidiff_file_path")
+            self._set_working_tree_to_commit(fix_commit_hash)
+            rev_pointer = 'HEAD^'
 
         max_change_size = kwargs.get('max_change_size', 20)
 
@@ -87,7 +106,7 @@ class AGSZZ(AbstractSZZ):
         commits_to_ignore = set()
         while to_blame:
             log.info(f"excluding commits: {params['ignore_revs_list']}")
-            blame_data = self._ag_annotate(impacted_files, **params)
+            blame_data = self._ag_annotate(impacted_files, rev_pointer=rev_pointer, **params)
 
             new_commits_to_ignore = set()
             for bd in blame_data:

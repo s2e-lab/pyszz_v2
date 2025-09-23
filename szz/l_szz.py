@@ -23,12 +23,12 @@ class LSZZ(MASZZ):
         super().__init__(repo_full_name, repo_url, repos_dir)
 
     # TODO: add parse and type check on kwargs
-    def find_bic(self, fix_commit_hash: str, impacted_files: List['ImpactedFile'], **kwargs) -> Set[Commit]:
+    def find_bic(self, fix_commit_hash: str = None, unidiff_file_path: str = None, impacted_files: List['ImpactedFile'] = None, **kwargs) -> Set[Commit]:
         """
         Find bug introducing commits candidates selecting the ones having the highest number of modified lines.
         """
 
-        bic_candidates = super().find_bic(fix_commit_hash=fix_commit_hash, impacted_files=impacted_files, **kwargs)
+        bic_candidates = super().find_bic(fix_commit_hash=fix_commit_hash, unidiff_file_path=unidiff_file_path, impacted_files=impacted_files, **kwargs)
 
         return {self.select_largest_commit(bic_candidates)}
 

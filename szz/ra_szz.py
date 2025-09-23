@@ -48,12 +48,16 @@ class RASZZ(MASZZ):
 
         return refactorings
 
-    def get_impacted_files(self, fix_commit_hash: str,
+    def get_impacted_files(self, fix_commit_hash: str = None,
+                           unidiff_file_path: str = None,
                            file_ext_to_parse: List[str] = None,
                            only_deleted_lines: bool = True) -> List['ImpactedFile']:
-        impacted_files = set(super().get_impacted_files(fix_commit_hash, file_ext_to_parse, only_deleted_lines))
+        impacted_files = set(super().get_impacted_files(fix_commit_hash=fix_commit_hash, unidiff_file_path=unidiff_file_path, file_ext_to_parse=file_ext_to_parse, only_deleted_lines=only_deleted_lines))
 
-        fix_refactorings = self._extract_refactorings([fix_commit_hash])
+        #for unidiff, there isnt a single fix commit to analyze for refactorings
+        fix_refactorings = dict()
+        if fix_commit_hash:
+            fix_refactorings = self._extract_refactorings([fix_commit_hash])
 
         for refactoring in self.__read_refactorings_for_commit(fix_commit_hash, fix_refactorings):
             for location in refactoring['rightSideLocations']:

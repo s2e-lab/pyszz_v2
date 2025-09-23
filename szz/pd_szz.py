@@ -29,7 +29,7 @@ class PyDrillerSZZ(AbstractSZZ):
     def __init__(self, repo_full_name: str, repo_url: str, repos_dir: str = None):
         super().__init__(repo_full_name, repo_url, repos_dir)
 
-    def find_bic(self, fix_commit_hash: str, impacted_files: List['ImpactedFile'], **kwargs) -> Set[Commit]:
+    def find_bic(self, fix_commit_hash: str = None, unidiff_file_path: str = None, impacted_files: List['ImpactedFile'] = None, **kwargs) -> Set[Commit]:
         """
         Find bug introducing commits candidates.
 
@@ -40,6 +40,35 @@ class PyDrillerSZZ(AbstractSZZ):
         """
 
         log.info(f"find_bic() kwargs: {kwargs}")
+
+        # PyDriller-specific: only supports commit-based analysis; for unidiff, fallback to blame like BaseSZZ
+        if unidiff_file_path:
+            if impacted_files is None:
+                impacted_files = self.get_impacted_files(unidiff_file_path=unidiff_file_path,
+                                                         file_ext_to_parse=kwargs.get('file_ext_to_parse'),
+                                                         only_deleted_lines=True)
+            bug_introd_commits = set()
+            for imp_file in impacted_files:
+                # ensure the rev includes the file path
+                rev_for_file = 'HEAD'
+                if not self._path_exists_in_rev(rev_for_file, imp_file.file_path):
+                    fallback_rev = self._last_rev_with_path('HEAD', imp_file.file_path)
+                    rev_for_file = fallback_rev if fallback_rev else 'HEAD'
+
+                blame_data = self._blame(
+                    rev=rev_for_file,
+                    file_path=imp_file.file_path,
+                    modified_lines=imp_file.modified_lines,
+                    ignore_whitespaces=False,
+                    skip_comments=False
+                )
+                bug_introd_commits.update([entry.commit for entry in blame_data])
+
+            if kwargs.get('issue_date_filter', False):
+                bug_introd_commits = filter_by_date(bug_introd_commits, kwargs['issue_date'])
+            else:
+                log.info("Not filtering by issue date.")
+            return bug_introd_commits
 
         self._set_working_tree_to_commit(fix_commit_hash)
 

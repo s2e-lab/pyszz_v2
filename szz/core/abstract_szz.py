@@ -6,10 +6,11 @@ from enum import Enum
 from shutil import copytree
 from shutil import rmtree
 from tempfile import mkdtemp
-from typing import List, Set
+from typing import List, Set, Union
 
 from git import Commit, Repo
 from pydriller import ModificationType, GitRepository as PyDrillerGitRepo
+from unidiff import PatchSet
 
 from options import Options
 from szz.core.comment_parser import parse_comments
@@ -87,7 +88,8 @@ class AbstractSZZ(ABC):
         """
         pass
 
-    def get_impacted_files(self, fix_commit_hash: str,
+    def get_impacted_files(self, fix_commit_hash: Union[str, None] = None,
+                           unidiff_file_path: Union[str, None] = None,
                            file_ext_to_parse: List[str] = None,
                            only_deleted_lines: bool = True) -> List['ImpactedFile']:
         """
@@ -98,7 +100,30 @@ class AbstractSZZ(ABC):
         :param List[str] file_ext_to_parse: parse only the given file extensions
         :param only_deleted_lines: considers as modified lines only the line numbers that are deleted and added.
             By default, only deleted lines are considered
+        :returns List[ImpactedFile] impacted_files
+        """
+        #make sure an option is proved for input method
+        if fix_commit_hash and unidiff_file_path:
+            raise ValueError("Cannot specify both fix_commit_hash and unidiff_file_path")
+        if not fix_commit_hash and not unidiff_file_path:
+            raise ValueError("Must specify either fix_commit_hash or unidiff_file_path")
+        
+        if unidiff_file_path:
+            return self._get_impacted_files_from_unidiff_file(unidiff_file_path, file_ext_to_parse, only_deleted_lines)
+        else:
+            return self._get_impacted_files_from_commit(fix_commit_hash, file_ext_to_parse, only_deleted_lines)
+
+    def _get_impacted_files_from_commit(self, fix_commit_hash: str,
+                                       file_ext_to_parse: List[str] = None,
+                                       only_deleted_lines: bool = True) -> List['ImpactedFile']:
+        """
+         Parse the diff of given fix commit using PyDriller to obtain a list of ImpactedFile with
+         impacted file path and modified line ranges.
+
         :param str fix_commit_hash: hash of fix commit to parse
+        :param List[str] file_ext_to_parse: parse only the given file extensions
+        :param only_deleted_lines: considers as modified lines only the line numbers that are deleted and added.
+            By default, only deleted lines are considered
         :returns List[ImpactedFile] impacted_files
         """
         impacted_files = list()
@@ -131,6 +156,71 @@ class AbstractSZZ(ABC):
 
         log.info(impacted_files)
 
+        return impacted_files
+
+    def _get_impacted_files_from_unidiff_file(self, unidiff_file_path: str,
+                                             file_ext_to_parse: List[str] = None,
+                                             only_deleted_lines: bool = True) -> List['ImpactedFile']:
+        """
+         Parse unidiff file to obtain a list of ImpactedFile with impacted file path and modified line ranges.
+        """
+        impacted_files = list()
+        
+        try:
+            with open(unidiff_file_path, 'r') as f:
+                unidiff_content = f.read()
+            patch_set = PatchSet(unidiff_content)
+            
+            for patched_file in patch_set:
+                #Skip newly added files 
+                if not patched_file.source_file:
+                    continue
+                
+                # Get file path and remove "before/" and "after/" prefixes
+                file_path = patched_file.source_file
+                if patched_file.is_removed_file:
+                    file_path = patched_file.source_file
+                else:
+                    file_path = patched_file.target_file
+                
+                if file_path.startswith("before/"):
+                    file_path = file_path[7:] 
+                elif file_path.startswith("after/"):
+                    file_path = file_path[6:] 
+                
+                # Filter files by extension
+                if file_ext_to_parse:
+                    ext = file_path.split('.')
+                    if len(ext) < 2 or (len(ext) > 1 and ext[1].lower() not in file_ext_to_parse):
+                        log.info(f"skip file: {file_path}")
+                        continue
+                
+                # Extract deleted lines
+                lines_deleted = []
+                for hunk in patched_file:
+                    for line in hunk:
+                        if line.is_removed:
+                            lines_deleted.append(line.source_line_no)
+                
+                if len(lines_deleted) > 0:
+                    impacted_files.append(ImpactedFile(file_path, lines_deleted, LineChangeType.DELETE))
+                
+                # Extract added lines if requested
+                if not only_deleted_lines:
+                    lines_added = []
+                    for hunk in patched_file:
+                        for line in hunk:
+                            if line.is_added:
+                                lines_added.append(line.target_line_no)
+                    
+                    if len(lines_added) > 0:
+                        impacted_files.append(ImpactedFile(file_path, lines_added, LineChangeType.ADD))
+        
+        except Exception as e:
+            log.error(f"Error parsing unidiff content: {e}")
+            raise
+        
+        log.info(impacted_files)
         return impacted_files
 
     def _blame(self, rev: str,
@@ -258,6 +348,42 @@ class AbstractSZZ(ABC):
     def get_commit(self, hash: str) -> Commit:
         """ return the Commit object for the given hash """
         return self.repository.commit(hash)
+
+    def _path_exists_in_rev(self, rev: str, file_path: str) -> bool:
+        """Return True if file_path exists in the given rev."""
+        try:
+            # cat-file -e exits non-zero if the path does not exist in rev
+            self.repository.git.cat_file('-e', f"{rev}:{file_path}")
+            return True
+        except Exception:
+            return False
+
+    def _last_rev_with_path(self, start_rev: str, file_path: str) -> str:
+        """Return the latest commit reachable from start_rev where file_path exists, or empty string.
+
+        This walks backwards from the last commit that touched the path until the file exists in the tree
+        (e.g., skips commits where the path was deleted/renamed away).
+        """
+        try:
+            # Start from the last commit that touched the path reachable from start_rev
+            current = self.repository.git.log('-n', '1', '--format=%H', start_rev, '--', file_path).strip()
+        except Exception:
+            current = ''
+
+        visited = 0
+        while current:
+            if self._path_exists_in_rev(current, file_path):
+                return current
+            # Move to the previous commit that touched the path
+            try:
+                parent = self.repository.git.log('-n', '1', '--format=%H', f'{current}^', '--', file_path).strip()
+            except Exception:
+                parent = ''
+            current = parent
+            visited += 1
+            if visited > 1000:
+                break
+        return ''
 
     def __cleanup_repo(self):
         """ Cleanup of local repository used by SZZ """
