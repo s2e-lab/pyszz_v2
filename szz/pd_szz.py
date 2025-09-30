@@ -44,16 +44,20 @@ class PyDrillerSZZ(AbstractSZZ):
         # PyDriller-specific: only supports commit-based analysis; for unidiff, fallback to blame like BaseSZZ
         if unidiff_file_path:
             if impacted_files is None:
-                impacted_files = self.get_impacted_files(unidiff_file_path=unidiff_file_path,
+                impacted_files = self.get_impacted_files(fix_commit_hash=fix_commit_hash,
+                                                         unidiff_file_path=unidiff_file_path,
                                                          file_ext_to_parse=kwargs.get('file_ext_to_parse'),
                                                          only_deleted_lines=True)
+            if not fix_commit_hash:
+                raise ValueError("Unidiff mode requires fix_commit_hash")
+            self._set_working_tree_to_commit(fix_commit_hash)
             bug_introd_commits = set()
             for imp_file in impacted_files:
                 # ensure the rev includes the file path
-                rev_for_file = 'HEAD'
+                rev_for_file = 'HEAD^'
                 if not self._path_exists_in_rev(rev_for_file, imp_file.file_path):
                     fallback_rev = self._last_rev_with_path('HEAD', imp_file.file_path)
-                    rev_for_file = fallback_rev if fallback_rev else 'HEAD'
+                    rev_for_file = fallback_rev if fallback_rev else 'HEAD^'
 
                 blame_data = self._blame(
                     rev=rev_for_file,

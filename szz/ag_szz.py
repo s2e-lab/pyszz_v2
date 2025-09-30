@@ -83,10 +83,14 @@ class AGSZZ(AbstractSZZ):
 
         if unidiff_file_path:
             if impacted_files is None:
-                impacted_files = self.get_impacted_files(unidiff_file_path=unidiff_file_path, 
+                impacted_files = self.get_impacted_files(fix_commit_hash=fix_commit_hash,
+                                                       unidiff_file_path=unidiff_file_path, 
                                                        file_ext_to_parse=kwargs.get('file_ext_to_parse'), 
                                                        only_deleted_lines=True)
-            rev_pointer = 'HEAD'
+            if not fix_commit_hash:
+                raise ValueError("Unidiff mode requires fix_commit_hash")
+            self._set_working_tree_to_commit(fix_commit_hash)
+            rev_pointer = 'HEAD^'
         else:
             if fix_commit_hash is None:
                 raise ValueError("Must specify either fix_commit_hash or unidiff_file_path")

@@ -54,7 +54,6 @@ class RASZZ(MASZZ):
                            only_deleted_lines: bool = True) -> List['ImpactedFile']:
         impacted_files = set(super().get_impacted_files(fix_commit_hash=fix_commit_hash, unidiff_file_path=unidiff_file_path, file_ext_to_parse=file_ext_to_parse, only_deleted_lines=only_deleted_lines))
 
-        #for unidiff, there isnt a single fix commit to analyze for refactorings
         fix_refactorings = dict()
         if fix_commit_hash:
             fix_refactorings = self._extract_refactorings([fix_commit_hash])

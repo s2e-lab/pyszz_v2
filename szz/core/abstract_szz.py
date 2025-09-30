@@ -102,12 +102,11 @@ class AbstractSZZ(ABC):
             By default, only deleted lines are considered
         :returns List[ImpactedFile] impacted_files
         """
-        #make sure an option is proved for input method
-        if fix_commit_hash and unidiff_file_path:
-            raise ValueError("Cannot specify both fix_commit_hash and unidiff_file_path")
+        # validate that at least one input method is provided
         if not fix_commit_hash and not unidiff_file_path:
             raise ValueError("Must specify either fix_commit_hash or unidiff_file_path")
-        
+
+        # prefer explicit unidiff content when provided; allow passing both
         if unidiff_file_path:
             return self._get_impacted_files_from_unidiff_file(unidiff_file_path, file_ext_to_parse, only_deleted_lines)
         else:
@@ -188,14 +187,14 @@ class AbstractSZZ(ABC):
                 elif file_path.startswith("after/"):
                     file_path = file_path[6:] 
                 
-                # Filter files by extension
+                #Filter files by extension
                 if file_ext_to_parse:
                     ext = file_path.split('.')
                     if len(ext) < 2 or (len(ext) > 1 and ext[1].lower() not in file_ext_to_parse):
                         log.info(f"skip file: {file_path}")
                         continue
                 
-                # Extract deleted lines
+                #get deleted lines
                 lines_deleted = []
                 for hunk in patched_file:
                     for line in hunk:
@@ -205,7 +204,7 @@ class AbstractSZZ(ABC):
                 if len(lines_deleted) > 0:
                     impacted_files.append(ImpactedFile(file_path, lines_deleted, LineChangeType.DELETE))
                 
-                # Extract added lines if requested
+                #get added lines if needed
                 if not only_deleted_lines:
                     lines_added = []
                     for hunk in patched_file:
@@ -352,7 +351,7 @@ class AbstractSZZ(ABC):
     def _path_exists_in_rev(self, rev: str, file_path: str) -> bool:
         """Return True if file_path exists in the given rev."""
         try:
-            # cat-file -e exits non-zero if the path does not exist in rev
+            #cat-file -e exits non-zero if the path does not exist in rev
             self.repository.git.cat_file('-e', f"{rev}:{file_path}")
             return True
         except Exception:
@@ -360,12 +359,11 @@ class AbstractSZZ(ABC):
 
     def _last_rev_with_path(self, start_rev: str, file_path: str) -> str:
         """Return the latest commit reachable from start_rev where file_path exists, or empty string.
-
         This walks backwards from the last commit that touched the path until the file exists in the tree
         (e.g., skips commits where the path was deleted/renamed away).
         """
         try:
-            # Start from the last commit that touched the path reachable from start_rev
+            #Start from the last commit that touched the path reachable from start_rev
             current = self.repository.git.log('-n', '1', '--format=%H', start_rev, '--', file_path).strip()
         except Exception:
             current = ''
@@ -374,7 +372,7 @@ class AbstractSZZ(ABC):
         while current:
             if self._path_exists_in_rev(current, file_path):
                 return current
-            # Move to the previous commit that touched the path
+            #Move to the previous commit that touched the path
             try:
                 parent = self.repository.git.log('-n', '1', '--format=%H', f'{current}^', '--', file_path).strip()
             except Exception:

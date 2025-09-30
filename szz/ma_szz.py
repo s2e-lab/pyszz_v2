@@ -96,13 +96,17 @@ class MASZZ(AGSZZ):
         log.info(f"find_bic() kwargs: {kwargs}")
         if unidiff_file_path:
             if impacted_files is None:
-                impacted_files = self.get_impacted_files(unidiff_file_path=unidiff_file_path,
+                impacted_files = self.get_impacted_files(fix_commit_hash=fix_commit_hash,
+                                                         unidiff_file_path=unidiff_file_path,
                                                          file_ext_to_parse=kwargs.get('file_ext_to_parse'),
                                                          only_deleted_lines=True)
+            if not fix_commit_hash:
+                raise ValueError("Unidiff mode requires fix_commit_hash")
+            self._set_working_tree_to_commit(fix_commit_hash)
             if kwargs.get('blame_rev_pointer', None):
                 params_rev_pointer = kwargs['blame_rev_pointer']
             else:
-                params_rev_pointer = 'HEAD'
+                params_rev_pointer = 'HEAD^'
         else:
             self._set_working_tree_to_commit(fix_commit_hash)
             params_rev_pointer = 'HEAD^'

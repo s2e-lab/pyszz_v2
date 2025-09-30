@@ -34,9 +34,18 @@ def main(input_json: str, out_json: str, conf: Dict, repos_dir: str):
         bug_inducing_commits = set()
         repo_name = commit['repo_name']
         repo_url = f'https://test:test@github.com/{repo_name}.git'  # using test:test as git login to skip private repos during clone
-        fix_commit = commit['fix_commit_hash']
+        
+        fix_commit = commit.get('fix_commit_hash')
+        unidiff_file_path = commit.get('unidiff_file_path')
 
-        log.info(f'{i + 1} of {tot}: {repo_name} {fix_commit}')
+        if unidiff_file_path and not fix_commit:
+            log.error("Unidiff mode requires fix_commit_hash alongside unidiff_file_path")
+            exit(1)
+        if not fix_commit and not unidiff_file_path:
+            log.error("Must have either fix_commit_hash or unidiff_file_path")
+            exit(1)
+
+        log.info(f'{i + 1} of {tot}: {repo_name} {fix_commit or "unidiff"}')
         
         issue_date = None
         if conf.get('issue_date_filter', None):
@@ -45,49 +54,94 @@ def main(input_json: str, out_json: str, conf: Dict, repos_dir: str):
         szz_name = conf['szz_name']
         if szz_name == 'b':
             b_szz = BaseSZZ(repo_full_name=repo_name, repo_url=repo_url, repos_dir=repos_dir)
-            imp_files = b_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
-            bug_inducing_commits = b_szz.find_bic(fix_commit_hash=fix_commit,
-                                        impacted_files=imp_files,
+            if unidiff_file_path:
+                bug_inducing_commits = b_szz.find_bic(fix_commit_hash=fix_commit,
+                                        unidiff_file_path=unidiff_file_path,
+                                        file_ext_to_parse=conf.get('file_ext_to_parse'),
                                         issue_date_filter=conf.get('issue_date_filter'),
                                         issue_date=issue_date)
+            else:
+                imp_files = b_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
+                bug_inducing_commits = b_szz.find_bic(fix_commit_hash=fix_commit,
+                                            impacted_files=imp_files,
+                                            issue_date_filter=conf.get('issue_date_filter'),
+                                            issue_date=issue_date)
         elif szz_name == 'ag':
             ag_szz = AGSZZ(repo_full_name=repo_name, repo_url=repo_url, repos_dir=repos_dir)
-            imp_files = ag_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
-            bug_inducing_commits = ag_szz.find_bic(fix_commit_hash=fix_commit,
-                                        impacted_files=imp_files,
-                                        max_change_size=conf.get('max_change_size'),
-                                        issue_date_filter=conf.get('issue_date_filter'),
-                                        issue_date=issue_date)
+            if unidiff_file_path:
+                bug_inducing_commits = ag_szz.find_bic(fix_commit_hash=fix_commit,
+                                            unidiff_file_path=unidiff_file_path,
+                                            file_ext_to_parse=conf.get('file_ext_to_parse'),
+                                            max_change_size=conf.get('max_change_size'),
+                                            issue_date_filter=conf.get('issue_date_filter'),
+                                            issue_date=issue_date)
+            else:
+                imp_files = ag_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
+                bug_inducing_commits = ag_szz.find_bic(fix_commit_hash=fix_commit,
+                                            impacted_files=imp_files,
+                                            max_change_size=conf.get('max_change_size'),
+                                            issue_date_filter=conf.get('issue_date_filter'),
+                                            issue_date=issue_date)
         elif szz_name == 'ma':
             ma_szz = MASZZ(repo_full_name=repo_name, repo_url=repo_url, repos_dir=repos_dir)
-            imp_files = ma_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
-            bug_inducing_commits = ma_szz.find_bic(fix_commit_hash=fix_commit,
-                                        impacted_files=imp_files,
-                                        max_change_size=conf.get('max_change_size'),
-                                        detect_move_from_other_files=DetectLineMoved(conf.get('detect_move_from_other_files')),
-                                        issue_date_filter=conf.get('issue_date_filter'),
-                                        issue_date=issue_date,
-                                        filter_revert_commits=conf.get('filter_revert_commits', False))
+            if unidiff_file_path:
+                bug_inducing_commits = ma_szz.find_bic(fix_commit_hash=fix_commit,
+                                            unidiff_file_path=unidiff_file_path,
+                                            file_ext_to_parse=conf.get('file_ext_to_parse'),
+                                            max_change_size=conf.get('max_change_size'),
+                                            detect_move_from_other_files=DetectLineMoved(conf.get('detect_move_from_other_files')),
+                                            issue_date_filter=conf.get('issue_date_filter'),
+                                            issue_date=issue_date,
+                                            filter_revert_commits=conf.get('filter_revert_commits', False))
+            else:
+                imp_files = ma_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
+                bug_inducing_commits = ma_szz.find_bic(fix_commit_hash=fix_commit,
+                                            impacted_files=imp_files,
+                                            max_change_size=conf.get('max_change_size'),
+                                            detect_move_from_other_files=DetectLineMoved(conf.get('detect_move_from_other_files')),
+                                            issue_date_filter=conf.get('issue_date_filter'),
+                                            issue_date=issue_date,
+                                            filter_revert_commits=conf.get('filter_revert_commits', False))
         elif szz_name == 'r':
             r_szz = RSZZ(repo_full_name=repo_name, repo_url=repo_url, repos_dir=repos_dir)
-            imp_files = r_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
-            bug_inducing_commits = r_szz.find_bic(fix_commit_hash=fix_commit,
-                                        impacted_files=imp_files,
-                                        max_change_size=conf.get('max_change_size'),
-                                        detect_move_from_other_files=DetectLineMoved(conf.get('detect_move_from_other_files')),
-                                        issue_date_filter=conf.get('issue_date_filter'),
-                                        issue_date=issue_date,
-                                        filter_revert_commits=conf.get('filter_revert_commits', False))
+            if unidiff_file_path:
+                bug_inducing_commits = r_szz.find_bic(fix_commit_hash=fix_commit,
+                                            unidiff_file_path=unidiff_file_path,
+                                            file_ext_to_parse=conf.get('file_ext_to_parse'),
+                                            max_change_size=conf.get('max_change_size'),
+                                            detect_move_from_other_files=DetectLineMoved(conf.get('detect_move_from_other_files')),
+                                            issue_date_filter=conf.get('issue_date_filter'),
+                                            issue_date=issue_date,
+                                            filter_revert_commits=conf.get('filter_revert_commits', False))
+            else:
+                imp_files = r_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
+                bug_inducing_commits = r_szz.find_bic(fix_commit_hash=fix_commit,
+                                            impacted_files=imp_files,
+                                            max_change_size=conf.get('max_change_size'),
+                                            detect_move_from_other_files=DetectLineMoved(conf.get('detect_move_from_other_files')),
+                                            issue_date_filter=conf.get('issue_date_filter'),
+                                            issue_date=issue_date,
+                                            filter_revert_commits=conf.get('filter_revert_commits', False))
         elif szz_name == 'l':
             l_szz = LSZZ(repo_full_name=repo_name, repo_url=repo_url, repos_dir=repos_dir)
-            imp_files = l_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
-            bug_inducing_commits = l_szz.find_bic(fix_commit_hash=fix_commit,
-                                        impacted_files=imp_files,
-                                        max_change_size=conf.get('max_change_size'),
-                                        detect_move_from_other_files=DetectLineMoved(conf.get('detect_move_from_other_files')),
-                                        issue_date_filter=conf.get('issue_date_filter'),
-                                        issue_date=issue_date,
-                                        filter_revert_commits=conf.get('filter_revert_commits', False))
+            if unidiff_file_path:
+                bug_inducing_commits = l_szz.find_bic(fix_commit_hash=fix_commit,
+                                            unidiff_file_path=unidiff_file_path,
+                                            file_ext_to_parse=conf.get('file_ext_to_parse'),
+                                            max_change_size=conf.get('max_change_size'),
+                                            detect_move_from_other_files=DetectLineMoved(conf.get('detect_move_from_other_files')),
+                                            issue_date_filter=conf.get('issue_date_filter'),
+                                            issue_date=issue_date,
+                                            filter_revert_commits=conf.get('filter_revert_commits', False))
+            else:
+                imp_files = l_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
+                bug_inducing_commits = l_szz.find_bic(fix_commit_hash=fix_commit,
+                                            impacted_files=imp_files,
+                                            max_change_size=conf.get('max_change_size'),
+                                            detect_move_from_other_files=DetectLineMoved(conf.get('detect_move_from_other_files')),
+                                            issue_date_filter=conf.get('issue_date_filter'),
+                                            issue_date=issue_date,
+                                            filter_revert_commits=conf.get('filter_revert_commits', False))
         elif szz_name == 'ra':
             ra_szz = RASZZ(repo_full_name=repo_name, repo_url=repo_url, repos_dir=repos_dir)
             imp_files = ra_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
@@ -100,11 +154,18 @@ def main(input_json: str, out_json: str, conf: Dict, repos_dir: str):
                                         filter_revert_commits=conf.get('filter_revert_commits', False))
         elif szz_name == 'pd':
             pd_szz = PyDrillerSZZ(repo_full_name=repo_name, repo_url=repo_url, repos_dir=repos_dir)
-            imp_files = pd_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
-            bug_inducing_commits = pd_szz.find_bic(fix_commit_hash=fix_commit,
-                                                   impacted_files=imp_files,
-                                                   issue_date_filter=conf.get('issue_date_filter'),
-                                                   issue_date=issue_date)
+            if unidiff_file_path:
+                bug_inducing_commits = pd_szz.find_bic(fix_commit_hash=fix_commit,
+                                                       unidiff_file_path=unidiff_file_path,
+                                                       file_ext_to_parse=conf.get('file_ext_to_parse'),
+                                                       issue_date_filter=conf.get('issue_date_filter'),
+                                                       issue_date=issue_date)
+            else:
+                imp_files = pd_szz.get_impacted_files(fix_commit_hash=fix_commit, file_ext_to_parse=conf.get('file_ext_to_parse'), only_deleted_lines=True)
+                bug_inducing_commits = pd_szz.find_bic(fix_commit_hash=fix_commit,
+                                                       impacted_files=imp_files,
+                                                       issue_date_filter=conf.get('issue_date_filter'),
+                                                       issue_date=issue_date)
         elif szz_name == 'a':
             a_szz = ASZZ(repo_full_name=repo_name, repo_url=repo_url, repos_dir=repos_dir)
             bug_inducing_commits = a_szz.start(fix_commit_hash=fix_commit, commit_issue_date=issue_date, **conf)

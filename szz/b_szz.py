@@ -34,13 +34,17 @@ class BaseSZZ(AbstractSZZ):
 
         ignore_revs_file_path = kwargs.get('ignore_revs_file_path', None)
 
-        # support unidiff input similar to AGSZZ
         if unidiff_file_path:
             if impacted_files is None:
-                impacted_files = self.get_impacted_files(unidiff_file_path=unidiff_file_path,
+                impacted_files = self.get_impacted_files(fix_commit_hash=fix_commit_hash,
+                                                         unidiff_file_path=unidiff_file_path,
                                                          file_ext_to_parse=kwargs.get('file_ext_to_parse'),
                                                          only_deleted_lines=True)
-            default_rev_pointer = 'HEAD'
+            #align HEAD to the provided fix commit so HEAD^ references the parent of that commit
+            if not fix_commit_hash:
+                raise ValueError("Unidiff mode requires fix_commit_hash")
+            self._set_working_tree_to_commit(fix_commit_hash)
+            default_rev_pointer = 'HEAD^'
         else:
             self._set_working_tree_to_commit(fix_commit_hash)
             default_rev_pointer = 'HEAD^'
@@ -48,7 +52,6 @@ class BaseSZZ(AbstractSZZ):
         bic = set()
         for imp_file in impacted_files:
             try:
-                # pick a rev where the file exists (like AGSZZ)
                 rev_for_file = default_rev_pointer
                 if not self._path_exists_in_rev(rev_for_file, imp_file.file_path):
                     fallback_rev = self._last_rev_with_path('HEAD', imp_file.file_path)
