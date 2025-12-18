@@ -102,11 +102,9 @@ class AbstractSZZ(ABC):
             By default, only deleted lines are considered
         :returns List[ImpactedFile] impacted_files
         """
-        # validate that at least one input method is provided
         if not fix_commit_hash and not unidiff_file_path:
             raise ValueError("Must specify either fix_commit_hash or unidiff_file_path")
 
-        # prefer explicit unidiff content when provided; allow passing both
         if unidiff_file_path:
             return self._get_impacted_files_from_unidiff_file(unidiff_file_path, file_ext_to_parse, only_deleted_lines)
         else:
